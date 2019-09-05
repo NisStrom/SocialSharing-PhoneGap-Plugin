@@ -12,10 +12,55 @@ static NSString *const kShareOptionSubject = @"subject";
 static NSString *const kShareOptionFiles = @"files";
 static NSString *const kShareOptionUrl = @"url";
 
+@interface CustomActivityItem : NSObject <UIActivityItemSource>
+@property NSString *realUrl;
+@end
+
+@implementation CustomActivityItem {
+}
+
+-(id)initWithName:(NSString *)realUrl_
+{
+    self = [super init];
+    if (self) {
+        self.realUrl = realUrl_;
+    }
+    return self;
+}
+
+- (id)activityViewControllerPlaceholderItem:(UIActivityViewController *)activityViewController
+{
+    return @"";
+}
+
+- (NSString *)activityViewController:(UIActivityViewController *)activityViewController subjectForActivityType:(NSString *)activityType
+{
+  //  if ([activityType isEqualToString:UIActivityTypeMail])
+   // {
+        return @"Subject";
+   // }
+    
+  //  return nil;
+}
+
+- (id)activityViewController:(UIActivityViewController *)activityViewController itemForActivityType:(NSString *)activityType
+{
+    if ([activityType isEqualToString:@"com.google.Gmail.ShareExtension"] ||
+        [activityType isEqualToString:@"com.apple.UIKit.activity.Mail"] ||
+        [activityType isEqualToString:@"com.microsoft.Office.Outlook.compose-shareextension"]) {
+        NSString * escapedString = [_realUrl stringByReplacingOccurrencesOfString:@"&" withString:@"&amp"];
+         NSURL* escapedUrl = [NSURL  URLWithString:escapedString];
+         return escapedUrl;
+    }
+    return _realUrl;
+}
+@end
+
 @implementation SocialSharing {
   UIPopoverController *_popover;
   NSString *_popupCoordinates;
 }
+
 
 - (void)pluginInitialize {
 }
@@ -107,7 +152,11 @@ static NSString *const kShareOptionUrl = @"url";
     }
 
     if (urlString != (id)[NSNull null] && urlString != nil) {
-        [activityItems addObject:[NSURL URLWithString:[urlString SSURLEncodedString]]];
+        //[activityItems addObject:subject];
+        CustomActivityItem* activityItem = [[CustomActivityItem alloc] initWithName:urlString];
+        [activityItems addObject:activityItem];
+
+       // [activityItems addObject:[NSURL URLWithString:[urlString SSURLEncodedString]]];
     }
 
     UIActivity *activity = [[UIActivity alloc] init];
@@ -735,23 +784,8 @@ static NSString *const kShareOptionUrl = @"url";
     if ([fileName hasPrefix:@"http"]) {
       NSURL *url = [NSURL URLWithString:fileName];
       NSData *fileData = [NSData dataWithContentsOfURL:url];
-      NSURLRequest *request = [NSURLRequest requestWithURL: url];
-      NSHTTPURLResponse *response;
-      [NSURLConnection sendSynchronousRequest: request returningResponse: &response error: nil];
-      if ([response respondsToSelector:@selector(allHeaderFields)]) {
-        NSDictionary *dictionary = [response allHeaderFields];
-        NSLog([dictionary description]);
-        NSString *name = dictionary[@"Content-Disposition"];
-        if (name == nil){
-          NSString *name = (NSString*)[[fileName componentsSeparatedByString: @"/"] lastObject];
-          file = [NSURL fileURLWithPath:[self storeInFile:[name componentsSeparatedByString: @"?"][0] fileData:fileData]];
-        } else {
-          file = [NSURL fileURLWithPath:[self storeInFile:[[name componentsSeparatedByString:@"="] lastObject] fileData:fileData]];
-        }
-      } else {
-	    NSString *name = (NSString*)[[fileName componentsSeparatedByString: @"/"] lastObject];
-        file = [NSURL fileURLWithPath:[self storeInFile:[name componentsSeparatedByString: @"?"][0] fileData:fileData]];
-	  }
+      NSString *name = (NSString*)[[fileName componentsSeparatedByString: @"/"] lastObject];
+      file = [NSURL fileURLWithPath:[self storeInFile:[name componentsSeparatedByString: @"?"][0] fileData:fileData]];
     } else if ([fileName hasPrefix:@"www/"]) {
       NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
       NSString *fullPath = [NSString stringWithFormat:@"%@/%@", bundlePath, fileName];
