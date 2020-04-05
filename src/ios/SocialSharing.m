@@ -11,6 +11,7 @@ static NSString *const kShareOptionMessage = @"message";
 static NSString *const kShareOptionSubject = @"subject";
 static NSString *const kShareOptionFiles = @"files";
 static NSString *const kShareOptionUrl = @"url";
+static NSString *const kShareOptionIPadCoordinates = @"iPadCoordinates";
 
 @interface CustomActivityItem : NSObject <UIActivityItemSource>
 @property NSString *realUrl;
@@ -75,6 +76,9 @@ static NSString *const kShareOptionUrl = @"url";
 }
 
 - (NSString*)getIPadPopupCoordinates {
+  // see https://github.com/EddyVerbruggen/SocialSharing-PhoneGap-Plugin/issues/1052
+  return nil;
+  /*
   if (_popupCoordinates != nil) {
     return _popupCoordinates;
   }
@@ -84,6 +88,7 @@ static NSString *const kShareOptionUrl = @"url";
     // prolly a wkwebview, ignoring for now
     return nil;
   }
+  */
 }
 
 - (void)setIPadPopupCoordinates:(CDVInvokedUrlCommand*)command {
@@ -104,7 +109,8 @@ static NSString *const kShareOptionUrl = @"url";
                         kShareOptionMessage: [command.arguments objectAtIndex:0],
                         kShareOptionSubject: [command.arguments objectAtIndex:1],
                         kShareOptionFiles: [command.arguments objectAtIndex:2],
-                        kShareOptionUrl: [command.arguments objectAtIndex:3]
+                        kShareOptionUrl: [command.arguments objectAtIndex:3],
+                        kShareOptionIPadCoordinates: [command.arguments objectAtIndex:4]
                       }
     isBooleanResponse:YES
 ];
@@ -130,6 +136,15 @@ static NSString *const kShareOptionUrl = @"url";
     NSString *subject   = options[kShareOptionSubject];
     NSArray  *filenames = options[kShareOptionFiles];
     NSString *urlString = options[kShareOptionUrl];
+    NSString *iPadCoordString = options[kShareOptionIPadCoordinates];
+    NSArray *iPadCoordinates;
+
+    if (iPadCoordString != nil && iPadCoordString != [NSNull null]) {
+      iPadCoordinates = [iPadCoordString componentsSeparatedByString:@","];
+    } else {
+      iPadCoordinates = @[];
+    }
+
 
     NSMutableArray *activityItems = [[NSMutableArray alloc] init];
 
@@ -200,8 +215,14 @@ static NSString *const kShareOptionUrl = @"url";
       if ([UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPad) {
         NSString* iPadCoords = [self getIPadPopupCoordinates];
         if (iPadCoords != nil && ![iPadCoords isEqual:@"-1,-1,-1,-1"]) {
-          NSArray *comps = [iPadCoords componentsSeparatedByString:@","];
-          CGRect rect = [self getPopupRectFromIPadPopupCoordinates:comps];
+          CGRect rect;
+          if ([iPadCoordinates count] == 4) {
+
+            rect = CGRectMake((int) [[iPadCoordinates objectAtIndex:0] integerValue], (int) [[iPadCoordinates objectAtIndex:1] integerValue], (int) [[iPadCoordinates objectAtIndex:2] integerValue], (int) [[iPadCoordinates objectAtIndex:3] integerValue]);
+          } else {
+            NSArray *comps = [iPadCoords componentsSeparatedByString:@","];
+            rect = [self getPopupRectFromIPadPopupCoordinates:comps];
+          }
           if ([activityVC respondsToSelector:@selector(popoverPresentationController)]) {
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 80000 // iOS 8.0 supported
             activityVC.popoverPresentationController.sourceView = self.webView;
@@ -216,13 +237,19 @@ static NSString *const kShareOptionUrl = @"url";
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 80000 // iOS 8.0 supported
           activityVC.popoverPresentationController.sourceView = self.webView;
           // position the popup at the bottom, just like iOS < 8 did (and iPhone still does on iOS 8)
-          NSArray *comps = [NSArray arrayWithObjects:
-                            [NSNumber numberWithInt:(self.viewController.view.frame.size.width/2)-200],
-                            [NSNumber numberWithInt:self.viewController.view.frame.size.height],
-                            [NSNumber numberWithInt:400],
-                            [NSNumber numberWithInt:400],
-                            nil];
-          CGRect rect = [self getPopupRectFromIPadPopupCoordinates:comps];
+          CGRect rect;
+          if ([iPadCoordinates count] == 4) {
+            NSLog([[NSString alloc] initWithFormat:@"test %d", [[iPadCoordinates objectAtIndex:0] integerValue]]);
+            rect = CGRectMake((int) [[iPadCoordinates objectAtIndex:0] integerValue], (int) [[iPadCoordinates objectAtIndex:1] integerValue], (int) [[iPadCoordinates objectAtIndex:2] integerValue], (int) [[iPadCoordinates objectAtIndex:3] integerValue]);
+          } else {
+            NSArray *comps = [NSArray arrayWithObjects:
+                               [NSNumber numberWithInt:(self.viewController.view.frame.size.width/2)-200],
+                               [NSNumber numberWithInt:self.viewController.view.frame.size.height],
+                               [NSNumber numberWithInt:400],
+                               [NSNumber numberWithInt:400],
+                               nil];
+            rect = [self getPopupRectFromIPadPopupCoordinates:comps];
+          }
           activityVC.popoverPresentationController.sourceRect = rect;
 #endif
         }
@@ -353,8 +380,8 @@ static NSString *const kShareOptionUrl = @"url";
     if (SLComposeViewControllerResultCancelled == result) {
       CDVPluginResult * pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"cancelled"];
       [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
-    } else if ([self isAvailableForSharing:command type:type]) {
-      CDVPluginResult * pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsBool:SLComposeViewControllerResultDone == result];
+    } else if (SLComposeViewControllerResultDone == result || [self isAvailableForSharing:command type:type]) {
+      CDVPluginResult * pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsBool:true];
       [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
     } else {
       CDVPluginResult * pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"not available"];
@@ -455,10 +482,9 @@ static NSString *const kShareOptionUrl = @"url";
     // remember the command, because we need it in the didFinishWithResult method
     _command = command;
 
-    [self.commandDelegate runInBackground:^{
+    dispatch_async(dispatch_get_main_queue(), ^{
       [[self getTopMostViewController] presentViewController:self.globalMailComposer animated:YES completion:nil];
-    }];
-
+    });
   } else {
     CDVPluginResult * pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"not available"];
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
@@ -492,6 +518,10 @@ static NSString *const kShareOptionUrl = @"url";
   NSString *result = (NSString*)CFBridgingRelease(UTTypeCopyPreferredTagWithClass(type, kUTTagClassMIMEType));
   CFRelease(ext);
   CFRelease(type);
+  if (result == nil) {
+    result = @"application/octet-stream";
+  }
+
   return result;
 }
 
@@ -550,10 +580,10 @@ static NSString *const kShareOptionUrl = @"url";
     }
     // remember the command, because we need it in the didFinishWithResult method
     _command = command;
-    [self.commandDelegate runInBackground:^{
+    dispatch_async(dispatch_get_main_queue(), ^{
       picker.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
       [[self getTopMostViewController] presentViewController:picker animated:NO completion:nil];
-    }];
+    });
   } else {
     CDVPluginResult * pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"not available"];
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
